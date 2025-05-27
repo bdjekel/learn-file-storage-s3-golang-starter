@@ -1,9 +1,12 @@
 package main
 
 import (
+	"encoding/base64"
 	"fmt"
 	"io"
 	"net/http"
+	"os"
+	"path/filepath"
 
 	"github.com/bootdotdev/learn-file-storage-s3-golang-starter/internal/auth"
 	"github.com/google/uuid"
@@ -51,26 +54,47 @@ func (cfg *apiConfig) handlerUploadThumbnail(w http.ResponseWriter, r *http.Requ
 		respondWithError(w, http.StatusInternalServerError, "Couldn't parse image data", err)
 		return
 	}
-	videoMetadata, err := cfg.db.GetVideo(videoID)
+
+//TODO: add other supported image types
+	fileExt := ""
+	switch mediaType {
+		case "image/jpeg":
+			fileExt = "jpg"
+		case "image/png":
+			fileExt = "png"
+		case "image/gif":
+			fileExt = "gif"
+		default:
+			respondWithError(w, http.StatusBadRequest, "Invalid image type", fmt.Errorf("unsupported media type: %s", mediaType))
+			return
+	}
+
+	localFilePath := fmt.Sprintf("assets/%s.%s", videoID, fileExt)
+	rootFilePath := filepath.Join(cfg.assetsRoot, localFilePath)
+
+	// had to stop here abruptly.
+	tnFile, err := os.Create(rootFilePath)
+	if err != nil {
+		respondWithError(w, http.StatusInternalServerError, "Couldn't save file", err)
+		return
+	}
+
+	imageDataBase64 := base64.StdEncoding.EncodeToString(imageData)
+
+	videoData, err := cfg.db.GetVideo(videoID)
 	if err != nil {
 		respondWithError(w, http.StatusNotFound, "Video not found", err)
 		return
 	}
-	if videoMetadata.UserID != userID {
+	if videoData.UserID != userID {
 		respondWithError(w, http.StatusUnauthorized, "User not authorized to retreive this video.", err)
 	}
 
-	newTN := thumbnail{
-		data: imageData,
-		mediaType: mediaType,
-	}
+	dataURL := fmt.Sprintf("data:%s;base64,%v", mediaType, imageDataBase64)
+	
+	videoData.ThumbnailURL = &dataURL
 
-	videoThumbnails[videoMetadata.ID] = newTN
-
-	tnURL := fmt.Sprintf("http://localhost:%s/api/thumbnails/%v", cfg.port, videoMetadata.ID)
-	videoMetadata.ThumbnailURL = &tnURL
-
-	if err := cfg.db.UpdateVideo(videoMetadata); err != nil {
+	if err := cfg.db.UpdateVideo(videoData); err != nil {
 		respondWithError(w, http.StatusInternalServerError, "Couldn't update video metadata.", err)
 	}
 	
