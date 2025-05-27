@@ -43,14 +43,20 @@ func (cfg *apiConfig) handlerUploadThumbnail(w http.ResponseWriter, r *http.Requ
 		respondWithError(w, http.StatusBadRequest, "Couldn't parse file", err)
 		return
 	}
+	defer file.Close()
 
 	mediaType := header.Header.Get("Content-Type")
-	imageData, err := io.ReadAll(r.Body)
+	imageData, err := io.ReadAll(file)
 	if err != nil {
-		respondWithError(w, http.StatusInternalServerError, "Couldn't parse image data.", err)
+		respondWithError(w, http.StatusInternalServerError, "Couldn't parse image data", err)
+		return
 	}
-	videoMetadata, err := cfg.db.GetVideo(userID)
+	videoMetadata, err := cfg.db.GetVideo(videoID)
 	if err != nil {
+		respondWithError(w, http.StatusNotFound, "Video not found", err)
+		return
+	}
+	if videoMetadata.UserID != userID {
 		respondWithError(w, http.StatusUnauthorized, "User not authorized to retreive this video.", err)
 	}
 
@@ -61,21 +67,18 @@ func (cfg *apiConfig) handlerUploadThumbnail(w http.ResponseWriter, r *http.Requ
 
 	videoThumbnails[videoMetadata.ID] = newTN
 
-	tnURL := fmt.Sprintf("http://localhost:<port>/api/thumbnails/%v", videoMetadata.ID)
+	tnURL := fmt.Sprintf("http://localhost:%s/api/thumbnails/%v", cfg.port, videoMetadata.ID)
 	videoMetadata.ThumbnailURL = &tnURL
 
 	if err := cfg.db.UpdateVideo(videoMetadata); err != nil {
 		respondWithError(w, http.StatusInternalServerError, "Couldn't update video metadata.", err)
 	}
 	
-	updatedVideo, err := cfg.db.GetVideo(userID)
+	updatedVideo, err := cfg.db.GetVideo(videoID)
 	if err != nil {
-		respondWithError(w, http.StatusUnauthorized, "User not authorized to retreive this video.", err)
+		respondWithError(w, http.StatusUnauthorized, "User not authorized to retrieve this video", err)
+		return
 	}
 
 	respondWithJSON(w, http.StatusOK, updatedVideo)
-	
-	defer file.Close()
-
-	respondWithJSON(w, http.StatusOK, struct{}{})
 }
