@@ -1,7 +1,6 @@
 package main
 
 import (
-	"encoding/base64"
 	"fmt"
 	"io"
 	"net/http"
@@ -20,6 +19,7 @@ func (cfg *apiConfig) handlerUploadThumbnail(w http.ResponseWriter, r *http.Requ
 		return
 	}
 
+	// Authenticate
 	token, err := auth.GetBearerToken(r.Header)
 	if err != nil {
 		respondWithError(w, http.StatusUnauthorized, "Couldn't find JWT", err)
@@ -32,15 +32,16 @@ func (cfg *apiConfig) handlerUploadThumbnail(w http.ResponseWriter, r *http.Requ
 		return
 	}
 
-
 	fmt.Println("uploading thumbnail for video", videoID, "by user", userID)
 
+	// Parse multipart form data
 	const maxMemory = 10 << 20 // 10 megabytes
 	if err := r.ParseMultipartForm(maxMemory); err != nil {
 		respondWithError(w, http.StatusInternalServerError, "Couldn't parse multipart form", err)
 		return
 	}
 
+	// Save parsed data as multipart.File, multipart.FileHeader
 	file, header, err := r.FormFile("thumbnail")
 	if err != nil {
 		respondWithError(w, http.StatusBadRequest, "Couldn't parse file", err)
@@ -49,11 +50,6 @@ func (cfg *apiConfig) handlerUploadThumbnail(w http.ResponseWriter, r *http.Requ
 	defer file.Close()
 
 	mediaType := header.Header.Get("Content-Type")
-	imageData, err := io.ReadAll(file)
-	if err != nil {
-		respondWithError(w, http.StatusInternalServerError, "Couldn't parse image data", err)
-		return
-	}
 
 //TODO: add other supported image types
 	fileExt := ""
@@ -69,18 +65,23 @@ func (cfg *apiConfig) handlerUploadThumbnail(w http.ResponseWriter, r *http.Requ
 			return
 	}
 
-	localFilePath := fmt.Sprintf("assets/%s.%s", videoID, fileExt)
+	localFilePath := fmt.Sprintf("%s.%s", videoID, fileExt)
 	rootFilePath := filepath.Join(cfg.assetsRoot, localFilePath)
 
-	// had to stop here abruptly.
+	// Create empty file for thumbnail
 	tnFile, err := os.Create(rootFilePath)
 	if err != nil {
 		respondWithError(w, http.StatusInternalServerError, "Couldn't save file", err)
 		return
 	}
 
-	imageDataBase64 := base64.StdEncoding.EncodeToString(imageData)
+	// Use io to fill newly created file with image data.
+	_, err = io.Copy(tnFile, file)
+	if err != nil {
+		respondWithError(w, http.StatusInternalServerError, "Error saving image to file.", err)
+	}
 
+	// Retrieve video to be updated
 	videoData, err := cfg.db.GetVideo(videoID)
 	if err != nil {
 		respondWithError(w, http.StatusNotFound, "Video not found", err)
@@ -90,10 +91,12 @@ func (cfg *apiConfig) handlerUploadThumbnail(w http.ResponseWriter, r *http.Requ
 		respondWithError(w, http.StatusUnauthorized, "User not authorized to retreive this video.", err)
 	}
 
-	dataURL := fmt.Sprintf("data:%s;base64,%v", mediaType, imageDataBase64)
+	// Store file path for image file location
+	dataURL := fmt.Sprintf("http://localhost:%s/assets/%s.%s", cfg.port, videoID, fileExt)
 	
 	videoData.ThumbnailURL = &dataURL
 
+	// Update database with image file path
 	if err := cfg.db.UpdateVideo(videoData); err != nil {
 		respondWithError(w, http.StatusInternalServerError, "Couldn't update video metadata.", err)
 	}
