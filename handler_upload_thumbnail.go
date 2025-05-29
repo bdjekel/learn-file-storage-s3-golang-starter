@@ -3,6 +3,7 @@ package main
 import (
 	"fmt"
 	"io"
+	"mime"
 	"net/http"
 	"os"
 	"path/filepath"
@@ -51,18 +52,21 @@ func (cfg *apiConfig) handlerUploadThumbnail(w http.ResponseWriter, r *http.Requ
 
 	mediaType := header.Header.Get("Content-Type")
 
-//TODO: add other supported image types
-	fileExt := ""
-	switch mediaType {
-		case "image/jpeg":
-			fileExt = "jpg"
-		case "image/png":
-			fileExt = "png"
-		case "image/gif":
-			fileExt = "gif"
-		default:
-			respondWithError(w, http.StatusBadRequest, "Invalid image type", fmt.Errorf("unsupported media type: %s", mediaType))
-			return
+	typeCheck, _, err := mime.ParseMediaType(mediaType)
+	if err != nil {
+		respondWithError(w, http.StatusUnsupportedMediaType, "Error checking file type.", err)
+	}
+	if typeCheck != "image/jpeg" && typeCheck != "image/png" {
+		respondWithError(w, http.StatusUnsupportedMediaType, "File type not supported - please use JPEG or PNG", nil)
+		return
+	}
+
+	var fileExt string
+	switch typeCheck {
+	case "image/jpeg":
+		fileExt = "jpg"
+	case "image/png":
+		fileExt = "png"
 	}
 
 	localFilePath := fmt.Sprintf("%s.%s", videoID, fileExt)
