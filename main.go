@@ -1,10 +1,13 @@
 package main
 
 import (
+	"context"
 	"log"
 	"net/http"
 	"os"
 
+	"github.com/aws/aws-sdk-go-v2/config"
+	"github.com/aws/aws-sdk-go-v2/service/s3"
 	"github.com/bootdotdev/learn-file-storage-s3-golang-starter/internal/database"
 
 	"github.com/joho/godotenv"
@@ -13,6 +16,7 @@ import (
 
 type apiConfig struct {
 	db               database.Client
+	s3Client		*s3.Client
 	jwtSecret        string
 	platform         string
 	filepathRoot     string
@@ -36,6 +40,13 @@ func main() {
 		log.Fatalf("Couldn't connect to database: %v", err)
 	}
 
+	awsCfg, err := config.LoadDefaultConfig(context.Background(), config.WithRegion(os.Getenv("S3_REGION")))
+	if err != nil {
+		log.Fatal("Could not load default AWS config.")
+	}
+
+	s3Client := s3.NewFromConfig(awsCfg)
+	
 	jwtSecret := os.Getenv("JWT_SECRET")
 	if jwtSecret == "" {
 		log.Fatal("JWT_SECRET environment variable is not set")
