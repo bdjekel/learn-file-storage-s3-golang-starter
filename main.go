@@ -89,6 +89,7 @@ func main() {
 
 	cfg := apiConfig{
 		db:               db,
+		s3Client: 		  s3Client,
 		jwtSecret:        jwtSecret,
 		platform:         platform,
 		filepathRoot:     filepathRoot,

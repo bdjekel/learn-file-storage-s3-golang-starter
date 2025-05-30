@@ -1,6 +1,9 @@
 package main
 
 import (
+	"crypto/rand"
+	"encoding/base64"
+	"fmt"
 	"io"
 	"mime"
 	"net/http"
@@ -90,11 +93,23 @@ func (cfg *apiConfig) handlerUploadVideo(w http.ResponseWriter, r *http.Request)
 		respondWithError(w, http.StatusInternalServerError, "file pointer failed to reset.", err)
 	}
 
+	bucket := os.Getenv("S3_BUCKET")
+
+	s3KeyBase := make([]byte, 32)
+	rand.Read(s3KeyBase)
+
+	s3KeyEncoded := base64.RawURLEncoding.EncodeToString(s3KeyBase)
+
+	//TODO: refactor mp4 to a string literal if you end up supporting more video types.
+	s3KeyFull := fmt.Sprintf("%s.mp4", s3KeyEncoded)
+
+
+	//TODO: finish step 9
 	cfg.s3Client.PutObject(r.Context(), &s3.PutObjectInput{
-		Bucket: os.Getenv("S3_BUCKET"),
-		Key: ,
-		Body: ,
-		ContentType: mediaType,
+		Bucket: &bucket,
+		Key: &s3KeyFull,
+		Body: tempFile,
+		ContentType: &mediaType,
 	})
 
 }
