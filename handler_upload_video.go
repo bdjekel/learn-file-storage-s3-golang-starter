@@ -79,6 +79,10 @@ func (cfg *apiConfig) handlerUploadVideo(w http.ResponseWriter, r *http.Request)
 	}
 
 	tempFile, err := os.CreateTemp("", "tubely-upload.mp4")
+	if err != nil {
+		respondWithError(w, http.StatusInternalServerError, "Error storing video file.", err)
+		return
+	}
 
 	defer os.Remove(tempFile.Name())
 	defer tempFile.Close()
@@ -86,11 +90,13 @@ func (cfg *apiConfig) handlerUploadVideo(w http.ResponseWriter, r *http.Request)
 	_, err = io.Copy(tempFile, file)
 	if err != nil {
 		respondWithError(w, http.StatusInternalServerError, "temp file write malfunction.", err)
+		return
 	}
 
 	_, err = tempFile.Seek(0, 0)
 	if err != nil {
 		respondWithError(w, http.StatusInternalServerError, "file pointer failed to reset.", err)
+		return
 	}
 
 	bucket := os.Getenv("S3_BUCKET")
@@ -100,11 +106,10 @@ func (cfg *apiConfig) handlerUploadVideo(w http.ResponseWriter, r *http.Request)
 
 	s3KeyEncoded := base64.RawURLEncoding.EncodeToString(s3KeyBase)
 
-	//TODO: refactor mp4 to a string literal if you end up supporting more video types.
+	//TODO: refactor "mp4" to a string literal if you end up supporting more video types.
 	s3KeyFull := fmt.Sprintf("%s.mp4", s3KeyEncoded)
 
 
-	//TODO: finish step 9
 	cfg.s3Client.PutObject(r.Context(), &s3.PutObjectInput{
 		Bucket: &bucket,
 		Key: &s3KeyFull,
@@ -112,5 +117,24 @@ func (cfg *apiConfig) handlerUploadVideo(w http.ResponseWriter, r *http.Request)
 		ContentType: &mediaType,
 	})
 
+
+	//TODO: finish step 10
+	videoURL := fmt.Sprintf("https://%s.s3.%s.amazonaws.com/%s", bucket, cfg.s3Region, s3KeyFull)
+
+	videoData.VideoURL = &videoURL
+
+	if err := cfg.db.UpdateVideo(videoData); err != nil {
+		respondWithError(w, http.StatusInternalServerError, "Error updating video in database.", err)
+		return
+	}
+
+//TODO: maybe modify error message. It could be misleading here as this is not the auth step.
+	updatedVideo, err := cfg.db.GetVideo(videoID)
+	if err != nil {
+		respondWithError(w, http.StatusUnauthorized, "User not authorized to retrieve this video", err)
+		return
+	}
+
+	respondWithJSON(w, http.StatusOK, updatedVideo)
 }
 

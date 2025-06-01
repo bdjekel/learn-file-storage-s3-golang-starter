@@ -112,6 +112,7 @@ func (cfg *apiConfig) handlerUploadThumbnail(w http.ResponseWriter, r *http.Requ
 		respondWithError(w, http.StatusInternalServerError, "Couldn't update video metadata.", err)
 	}
 	
+//TODO: maybe modify error message. It could be misleading here as this is not the auth step.
 	updatedVideo, err := cfg.db.GetVideo(videoID)
 	if err != nil {
 		respondWithError(w, http.StatusUnauthorized, "User not authorized to retrieve this video", err)
