@@ -1,13 +1,16 @@
 package main
 
 import (
+	"bytes"
 	"crypto/rand"
 	"encoding/base64"
+	"encoding/json"
 	"fmt"
 	"io"
 	"mime"
 	"net/http"
 	"os"
+	"os/exec"
 
 	"github.com/aws/aws-sdk-go-v2/service/s3"
 	"github.com/bootdotdev/learn-file-storage-s3-golang-starter/internal/auth"
@@ -138,3 +141,36 @@ func (cfg *apiConfig) handlerUploadVideo(w http.ResponseWriter, r *http.Request)
 	respondWithJSON(w, http.StatusOK, updatedVideo)
 }
 
+
+func getVideoAspectRatio(filePath string) (string, error) {
+	cmd := exec.Command("ffprobe", "-v", "error", "-print_format", "json", "-show_streams", filePath)
+
+	var out bytes.Buffer
+	cmd.Stdout = &out
+
+	err := cmd.Run()
+	if err != nil {
+		return "Error retrieving aspect ratio.", err
+	}
+
+	var jsonOut struct {
+			Width  int `json:"width"`
+			Height int `json:"height"`
+	}
+	err = json.Unmarshal(out.Bytes(), &jsonOut)
+	if err != nil {
+		return "Error retrieving aspect ratio.", err
+	}
+
+	if jsonOut.Width == 0 || jsonOut.Height == 0 {
+		return "Error retrieving aspect ratio.", err
+	}
+
+	aspectRatio := jsonOut.Height / jsonOut.Width
+
+	switch aspectRatio {
+	case 16 /9:
+		
+	}
+
+}
