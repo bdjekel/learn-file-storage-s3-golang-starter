@@ -101,15 +101,30 @@ func (cfg *apiConfig) handlerUploadVideo(w http.ResponseWriter, r *http.Request)
 		respondWithError(w, http.StatusInternalServerError, "file pointer failed to reset.", err)
 		return
 	}
+	
+	// Process video for fast start
+	updatedFilePath, err := processVideoForFastStart(tempFile.Name())
+	if err != nil {
+		respondWithError(w, http.StatusInternalServerError, "Error processing video for fast start", err)
+		return
+	}
+	
+	processedVideo, err := os.Open(updatedFilePath)
+	if err != nil {
+		respondWithError(w, http.StatusInternalServerError, "Error opening processed video file.", err)
+		return
+	}
 
-
-// Create file name for uploaded video.
+	defer os.Remove(processedVideo.Name())
+	defer processedVideo.Close()
+	
+	// Create file name for uploaded video.
 	bucket := os.Getenv("S3_BUCKET")
 
 	// Cryptographically random 32-byte integer as base "id"
 	s3KeyBase := make([]byte, 32)
 	rand.Read(s3KeyBase)
-
+	
 	// Encode byte slice into string.
 	s3KeyBaseEncoded := base64.RawURLEncoding.EncodeToString(s3KeyBase)
 	
@@ -131,18 +146,23 @@ func (cfg *apiConfig) handlerUploadVideo(w http.ResponseWriter, r *http.Request)
 		ratioPrefix = "other"		
 	}
 	
-
+	
 	// Combine prefix, encoded key base, and file extension
-
+	
 	//TODO: refactor "mp4" to a string literal if you end up supporting more video types.
 	s3KeyFull := fmt.Sprintf("%s/%s.mp4", ratioPrefix, s3KeyBaseEncoded)
+	
 
-	cfg.s3Client.PutObject(r.Context(), &s3.PutObjectInput{
+	_, err = cfg.s3Client.PutObject(r.Context(), &s3.PutObjectInput{
 		Bucket: &bucket,
 		Key: &s3KeyFull,
-		Body: tempFile,
+		Body: processedVideo,
 		ContentType: &mediaType,
 	})
+	if err != nil {
+		respondWithError(w, http.StatusInternalServerError, "Failed to upload video to S3", err)
+		return
+	}
 
 
 	videoURL := fmt.Sprintf("https://%s.s3.%s.amazonaws.com/%s", bucket, cfg.s3Region, s3KeyFull)
@@ -209,4 +229,16 @@ func getVideoAspectRatio(filePath string) (string, error) {
 		return "other", nil
 	}
 
+}
+
+func processVideoForFastStart(filePath string) (string, error) {
+	updatedFilePath := fmt.Sprintf("%s.processing", filePath)
+	cmd := exec.Command("ffmpeg", "-i", filePath, "-c", "copy", "-movflags", "faststart", "-f", "mp4", updatedFilePath)
+
+	err := cmd.Run()
+	if err != nil {
+		return "Error with processVideoForFastStart function.", err
+	}
+
+	return updatedFilePath, nil
 }
