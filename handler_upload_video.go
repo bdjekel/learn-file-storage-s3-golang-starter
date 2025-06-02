@@ -102,16 +102,40 @@ func (cfg *apiConfig) handlerUploadVideo(w http.ResponseWriter, r *http.Request)
 		return
 	}
 
+
+// Create file name for uploaded video.
 	bucket := os.Getenv("S3_BUCKET")
 
+	// Cryptographically random 32-byte integer as base "id"
 	s3KeyBase := make([]byte, 32)
 	rand.Read(s3KeyBase)
 
-	s3KeyEncoded := base64.RawURLEncoding.EncodeToString(s3KeyBase)
+	// Encode byte slice into string.
+	s3KeyBaseEncoded := base64.RawURLEncoding.EncodeToString(s3KeyBase)
+	
+	// Get aspect ratio for file name prefix
+	aspectRatio, err := getVideoAspectRatio(tempFile.Name())
+	if err != nil {
+		respondWithError(w, http.StatusInternalServerError, "Error with function getVideoAspectRatio.", err)
+		return
+	}
+	
+	var ratioPrefix string
+	
+	switch aspectRatio {
+	case "16:9":
+		ratioPrefix = "portrait"
+	case "9:16":
+		ratioPrefix = "landscape"
+	default:
+		ratioPrefix = "other"		
+	}
+	
+
+	// Combine prefix, encoded key base, and file extension
 
 	//TODO: refactor "mp4" to a string literal if you end up supporting more video types.
-	s3KeyFull := fmt.Sprintf("%s.mp4", s3KeyEncoded)
-
+	s3KeyFull := fmt.Sprintf("%s/%s.mp4", ratioPrefix, s3KeyBaseEncoded)
 
 	cfg.s3Client.PutObject(r.Context(), &s3.PutObjectInput{
 		Bucket: &bucket,
@@ -121,7 +145,6 @@ func (cfg *apiConfig) handlerUploadVideo(w http.ResponseWriter, r *http.Request)
 	})
 
 
-	//TODO: finish step 10
 	videoURL := fmt.Sprintf("https://%s.s3.%s.amazonaws.com/%s", bucket, cfg.s3Region, s3KeyFull)
 
 	videoData.VideoURL = &videoURL
@@ -154,23 +177,36 @@ func getVideoAspectRatio(filePath string) (string, error) {
 	}
 
 	var jsonOut struct {
+		Streams []struct {
 			Width  int `json:"width"`
 			Height int `json:"height"`
+		} `json:"streams"`
 	}
 	err = json.Unmarshal(out.Bytes(), &jsonOut)
 	if err != nil {
 		return "Error retrieving aspect ratio.", err
 	}
 
-	if jsonOut.Width == 0 || jsonOut.Height == 0 {
+	if len(jsonOut.Streams) == 0 {
+		return "Error retrieving aspect ratio.", fmt.Errorf("no video streams found")
+	}
+
+	if jsonOut.Streams[0].Width == 0 || jsonOut.Streams[0].Height == 0 {
 		return "Error retrieving aspect ratio.", err
 	}
 
-	aspectRatio := jsonOut.Height / jsonOut.Width
+	aspectRatio := float64(jsonOut.Streams[0].Width) / float64(jsonOut.Streams[0].Height)
 
-	switch aspectRatio {
-	case 16 /9:
-		
+	switch {
+	case aspectRatio >= 1.7 && aspectRatio <= 1.8:  // around 16/9 ≈ 1.77
+		fmt.Printf("ASPECT RATIO ==> %v", aspectRatio)
+		return "9:16", nil
+	case aspectRatio >= 0.55 && aspectRatio <= 0.57:  // around 9/16 ≈ 0.5625
+		fmt.Printf("ASPECT RATIO ==> %v", aspectRatio)
+		return "16:9", nil
+	default:
+		fmt.Printf("ASPECT RATIO ==> %v", aspectRatio)
+		return "other", nil
 	}
 
 }
